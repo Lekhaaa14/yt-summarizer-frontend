@@ -13,6 +13,7 @@ import {
   RotateCcw,
   Play,
 } from "lucide-react";
+import { YoutubeTranscript } from "youtube-transcript"; // ✅ NEW
 
 interface SummaryResult {
   summary: string;
@@ -35,6 +36,12 @@ export function YouTubeSummarizer() {
     setResult(null);
 
     try {
+      // ✅ STEP 1: Fetch transcript in browser
+      const transcript = await YoutubeTranscript.fetchTranscript(url);
+
+      const fullText = transcript.map((t) => t.text).join(" ");
+
+      // ✅ STEP 2: Send transcript to backend
       const response = await fetch(
         "https://yt-summarizer-backend-abjt.onrender.com/api/summarize",
         {
@@ -42,21 +49,19 @@ export function YouTubeSummarizer() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ url }),
+          body: JSON.stringify({ text: fullText }), // ✅ changed
         }
       );
 
       const data = await response.json();
 
-      // ✅ Show actual backend error
       if (!response.ok) {
-        console.error("Backend error:", data);
         throw new Error(data.detail || "Failed to summarize video");
       }
 
       setResult(data);
     } catch (err: any) {
-      console.error("Frontend error:", err);
+      console.error(err);
       setError(err.message || "Something went wrong");
     } finally {
       setIsLoading(false);
@@ -71,7 +76,6 @@ export function YouTubeSummarizer() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="border-b border-border">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center gap-2">
@@ -97,8 +101,7 @@ export function YouTubeSummarizer() {
                 Summarize any YouTube video instantly
               </h1>
               <p className="text-muted-foreground text-lg max-w-xl mx-auto">
-                Paste a YouTube URL and get a concise summary, key points, and
-                timestamps in seconds.
+                Paste a YouTube URL and get a concise summary instantly.
               </p>
             </div>
 
