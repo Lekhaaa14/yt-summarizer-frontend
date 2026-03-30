@@ -46,14 +46,18 @@ export function YouTubeSummarizer() {
         }
       );
 
+      const data = await response.json();
+
+      // ✅ Show actual backend error
       if (!response.ok) {
-        throw new Error("Failed to summarize video. Please check the URL and try again.");
+        console.error("Backend error:", data);
+        throw new Error(data.detail || "Failed to summarize video");
       }
 
-      const data = await response.json();
       setResult(data);
-    } catch {
-      setError("Something went wrong. Please check the URL and try again.");
+    } catch (err: any) {
+      console.error("Frontend error:", err);
+      setError(err.message || "Something went wrong");
     } finally {
       setIsLoading(false);
     }
@@ -83,17 +87,16 @@ export function YouTubeSummarizer() {
 
       <main className="container mx-auto px-4 py-12 md:py-20">
         {!result ? (
-          /* Input State */
           <div className="max-w-2xl mx-auto">
             <div className="text-center mb-10">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6">
                 <Sparkles className="w-4 h-4" />
                 AI-Powered Summaries
               </div>
-              <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-4 text-balance">
+              <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
                 Summarize any YouTube video instantly
               </h1>
-              <p className="text-muted-foreground text-lg max-w-xl mx-auto text-pretty">
+              <p className="text-muted-foreground text-lg max-w-xl mx-auto">
                 Paste a YouTube URL and get a concise summary, key points, and
                 timestamps in seconds.
               </p>
@@ -108,15 +111,12 @@ export function YouTubeSummarizer() {
                     placeholder="Paste YouTube URL here..."
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
-                    className="pl-10 h-12 bg-card border-border text-foreground placeholder:text-muted-foreground"
+                    className="pl-10 h-12"
                     disabled={isLoading}
                   />
                 </div>
-                <Button
-                  type="submit"
-                  disabled={isLoading || !url.trim()}
-                  className="h-12 px-6 bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
-                >
+
+                <Button type="submit" disabled={isLoading || !url.trim()}>
                   {isLoading ? (
                     <>
                       <Spinner className="w-4 h-4 mr-2" />
@@ -129,165 +129,57 @@ export function YouTubeSummarizer() {
               </div>
 
               {error && (
-                <p className="text-destructive text-sm text-center">{error}</p>
+                <p className="text-red-500 text-sm text-center">{error}</p>
               )}
             </form>
-
-            {isLoading && (
-              <div className="mt-12 text-center">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-card border border-border mb-4">
-                  <Spinner className="w-8 h-8 text-primary" />
-                </div>
-                <p className="text-muted-foreground">
-                  Analyzing video content...
-                </p>
-                <p className="text-muted-foreground/70 text-sm mt-1">
-                  This may take a moment
-                </p>
-              </div>
-            )}
-
-            {/* Feature Cards */}
-            {!isLoading && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-12">
-                <div className="p-4 rounded-xl bg-card border border-border">
-                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-3">
-                    <Sparkles className="w-5 h-5 text-primary" />
-                  </div>
-                  <h3 className="font-medium text-foreground mb-1">
-                    Quick Summary
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    Get a concise overview of the video content
-                  </p>
-                </div>
-                <div className="p-4 rounded-xl bg-card border border-border">
-                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-3">
-                    <ListChecks className="w-5 h-5 text-primary" />
-                  </div>
-                  <h3 className="font-medium text-foreground mb-1">
-                    Key Points
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    Extract the most important takeaways
-                  </p>
-                </div>
-                <div className="p-4 rounded-xl bg-card border border-border">
-                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-3">
-                    <Clock className="w-5 h-5 text-primary" />
-                  </div>
-                  <h3 className="font-medium text-foreground mb-1">
-                    Timestamps
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    Jump to specific sections easily
-                  </p>
-                </div>
-              </div>
-            )}
           </div>
         ) : (
-          /* Results State */
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center justify-between mb-8">
-              <h2 className="text-2xl font-bold text-foreground">
-                Video Summary
-              </h2>
-              <Button
-                onClick={handleReset}
-                variant="outline"
-                className="border-border hover:bg-secondary text-foreground"
-              >
+              <h2 className="text-2xl font-bold">Video Summary</h2>
+              <Button onClick={handleReset} variant="outline">
                 <RotateCcw className="w-4 h-4 mr-2" />
-                Summarize Another
+                Reset
               </Button>
             </div>
 
-            <div className="space-y-6">
-              {/* Summary Card */}
-              <Card className="bg-card border-border">
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-foreground">
-                    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                      <Sparkles className="w-4 h-4 text-primary" />
-                    </div>
-                    Summary
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-foreground/90 leading-relaxed">
-                    {result.summary}
-                  </p>
-                </CardContent>
-              </Card>
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle>Summary</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p>{result.summary}</p>
+              </CardContent>
+            </Card>
 
-              {/* Key Points Card */}
-              <Card className="bg-card border-border">
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-foreground">
-                    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                      <ListChecks className="w-4 h-4 text-primary" />
-                    </div>
-                    Key Points
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-3">
-                    {result.keyPoints.map((point, index) => (
-                      <li key={index} className="flex items-start gap-3">
-                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-medium flex items-center justify-center mt-0.5">
-                          {index + 1}
-                        </span>
-                        <span className="text-foreground/90">{point}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle>Key Points</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul>
+                  {result.keyPoints.map((point, i) => (
+                    <li key={i}>• {point}</li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
 
-              {/* Timestamps Card */}
-              <Card className="bg-card border-border">
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-foreground">
-                    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                      <Clock className="w-4 h-4 text-primary" />
-                    </div>
-                    Timestamps
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {result.timestamps.map((timestamp, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary/50 transition-colors"
-                      >
-                        <span className="font-mono text-sm text-primary bg-primary/10 px-2 py-1 rounded">
-                          {timestamp.split(" - ")[0] || timestamp.split(" ")[0]}
-                        </span>
-                        <span className="text-foreground/90 text-sm">
-                          {timestamp.includes(" - ")
-                            ? timestamp.split(" - ").slice(1).join(" - ")
-                            : timestamp.split(" ").slice(1).join(" ")}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Timestamps</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul>
+                  {result.timestamps.map((t, i) => (
+                    <li key={i}>{t}</li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
           </div>
         )}
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-border mt-auto">
-        <div className="container mx-auto px-4 py-6">
-          <p className="text-center text-sm text-muted-foreground">
-            Powered by AI. Paste any YouTube video URL to get started.
-          </p>
-        </div>
-      </footer>
     </div>
   );
 }
