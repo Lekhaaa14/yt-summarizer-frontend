@@ -36,7 +36,7 @@ export function YouTubeSummarizer() {
 
     try {
       const response = await fetch(
-        "https://yt-summarizer-backend.onrender.com/api/summarize",
+        "https://yt-summarizer-backend-abjt.onrender.com/api/summarize",
         {
           method: "POST",
           headers: {
