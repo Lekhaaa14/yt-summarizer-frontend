@@ -5,17 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Youtube,
-  Sparkles,
-  RotateCcw,
-  Play,
-} from "lucide-react";
+import { Youtube, Sparkles, RotateCcw, Play } from "lucide-react";
 
 interface SummaryResult {
   summary: string;
   keyPoints: string[];
   timestamps: string[];
+  title: string;
 }
 
 export function YouTubeSummarizer() {
@@ -32,21 +28,22 @@ export function YouTubeSummarizer() {
     setError(null);
     setResult(null);
 
+    // 120 second timeout — Gemini can be slow on free tier
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
+
     try {
-      // ✅ ONLY call backend (NO YouTube calls here)
       const response = await fetch(
         "https://yt-summarizer-backend-abjt.onrender.com/api/summarize",
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            url: url, // ✅ send URL only
-          }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }),
+          signal: controller.signal,
         }
       );
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (!response.ok) {
@@ -55,8 +52,12 @@ export function YouTubeSummarizer() {
 
       setResult(data);
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Something went wrong");
+      clearTimeout(timeoutId);
+      if (err.name === "AbortError") {
+        setError("Request timed out. The server is warming up — please try again in 30 seconds.");
+      } else {
+        setError(err.message || "Something went wrong");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -112,7 +113,6 @@ export function YouTubeSummarizer() {
                     disabled={isLoading}
                   />
                 </div>
-
                 <Button type="submit" disabled={isLoading || !url.trim()}>
                   {isLoading ? (
                     <>
@@ -125,6 +125,12 @@ export function YouTubeSummarizer() {
                 </Button>
               </div>
 
+              {isLoading && (
+                <p className="text-muted-foreground text-sm text-center">
+                  This may take up to 60 seconds on first load...
+                </p>
+              )}
+
               {error && (
                 <p className="text-red-500 text-sm text-center">{error}</p>
               )}
@@ -133,7 +139,7 @@ export function YouTubeSummarizer() {
         ) : (
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center justify-between mb-8">
-              <h2 className="text-2xl font-bold">Video Summary</h2>
+              <h2 className="text-2xl font-bold">{result.title || "Video Summary"}</h2>
               <Button onClick={handleReset} variant="outline">
                 <RotateCcw className="w-4 h-4 mr-2" />
                 Reset
@@ -149,31 +155,35 @@ export function YouTubeSummarizer() {
               </CardContent>
             </Card>
 
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle>Key Points</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul>
-                  {result.keyPoints.map((point, i) => (
-                    <li key={i}>• {point}</li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
+            {result.keyPoints?.length > 0 && (
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle>Key Points</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="space-y-1">
+                    {result.keyPoints.map((point, i) => (
+                      <li key={i}>• {point}</li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            )}
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Timestamps</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul>
-                  {result.timestamps.map((t, i) => (
-                    <li key={i}>{t}</li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
+            {result.timestamps?.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Timestamps</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ul className="space-y-1">
+                    {result.timestamps.map((t, i) => (
+                      <li key={i}>{t}</li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            )}
           </div>
         )}
       </main>
