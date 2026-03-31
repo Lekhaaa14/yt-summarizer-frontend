@@ -8,12 +8,9 @@ import { Spinner } from "@/components/ui/spinner";
 import {
   Youtube,
   Sparkles,
-  ListChecks,
-  Clock,
   RotateCcw,
   Play,
 } from "lucide-react";
-import { YoutubeTranscript } from "youtube-transcript"; // ✅ NEW
 
 interface SummaryResult {
   summary: string;
@@ -36,12 +33,7 @@ export function YouTubeSummarizer() {
     setResult(null);
 
     try {
-      // ✅ STEP 1: Fetch transcript in browser
-      const transcript = await YoutubeTranscript.fetchTranscript(url);
-
-      const fullText = transcript.map((t) => t.text).join(" ");
-
-      // ✅ STEP 2: Send transcript to backend
+      // ✅ ONLY call backend (NO YouTube calls here)
       const response = await fetch(
         "https://yt-summarizer-backend-abjt.onrender.com/api/summarize",
         {
@@ -49,7 +41,9 @@ export function YouTubeSummarizer() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ text: fullText }), // ✅ changed
+          body: JSON.stringify({
+            url: url, // ✅ send URL only
+          }),
         }
       );
 
