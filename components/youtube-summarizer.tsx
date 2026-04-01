@@ -18,10 +18,11 @@ const BACKEND_URL = "https://yt-summarizer-backend-abjt.onrender.com";
 
 const LOADING_STEPS = [
   "Fetching transcript...",
-  "Analyzing content...",
+  "Analyzing video content...",
+  "Processing visual frames...",
   "Identifying key points...",
   "Generating summary...",
-  "Almost done...",
+  "Almost done — this may take up to 2 minutes...",
 ];
 
 /** Strip markdown fences and extract clean JSON, then parse fields */
@@ -86,7 +87,7 @@ export function YouTubeSummarizer() {
     setLoadingStep(0);
     const interval = setInterval(() => {
       setLoadingStep((s) => Math.min(s + 1, LOADING_STEPS.length - 1));
-    }, 8000);
+    }, 15000);
     return () => clearInterval(interval);
   }, [isLoading]);
 
@@ -145,7 +146,7 @@ export function YouTubeSummarizer() {
     setResult(null);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000);
+    const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout for visual processing
 
     try {
       let transcript = "";
@@ -176,7 +177,7 @@ export function YouTubeSummarizer() {
       const isQuota = msg.includes("429") || msg.includes("quota") || msg.includes("Quota");
       const isTimeout = err.name === "AbortError";
       setError(
-        isTimeout ? "Request timed out. Please try again." :
+        isTimeout ? "Processing timed out after 5 minutes. The video may be too long. Please try a shorter video or one with captions." :
         isQuota ? "Gemini API daily quota reached (20 requests/day on free tier). Please try again after midnight Pacific Time, or use a different API key." :
         msg || "Something went wrong"
       );
