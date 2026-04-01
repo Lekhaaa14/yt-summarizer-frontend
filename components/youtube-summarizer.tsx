@@ -140,7 +140,15 @@ export function YouTubeSummarizer() {
     const timeoutId = setTimeout(() => controller.abort(), 120000);
 
     try {
-      const transcript = await fetchTranscript(url);
+      let transcript = "";
+      try {
+        transcript = await fetchTranscript(url);
+      } catch (fetchErr: any) {
+        clearTimeout(timeoutId);
+        setError(fetchErr.message || "Failed to fetch transcript. Check your video URL.");
+        setIsLoading(false);
+        return;
+      }
 
       const response = await fetch(`${BACKEND_URL}/api/summarize`, {
         method: "POST",
@@ -153,7 +161,7 @@ export function YouTubeSummarizer() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Failed to summarize video");
 
-      setResult(parseResponse(data));
+      try { setResult(parseResponse(data)); } catch { setResult(data); }
     } catch (err: any) {
       clearTimeout(timeoutId);
       setError(err.name === "AbortError" ? "Request timed out. Please try again." : err.message || "Something went wrong");
