@@ -13,6 +13,19 @@ interface SummaryResult {
   title: string;
 }
 
+// Strip leaked JSON wrapper if backend returns raw JSON string
+const cleanSummary = (text: string): string => {
+  if (!text) return "";
+  // If it looks like a JSON object leaked, try to extract just the summary field
+  if (text.trim().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.summary) return parsed.summary;
+    } catch {}
+  }
+  return text;
+};
+
 const SUPADATA_API_KEY = process.env.NEXT_PUBLIC_SUPADATA_API_KEY!;
 const BACKEND_URL = "https://yt-summarizer-backend-abjt.onrender.com";
 
@@ -203,7 +216,7 @@ export function YouTubeSummarizer() {
             <Card className="mb-6">
               <CardHeader><CardTitle>Summary</CardTitle></CardHeader>
               <CardContent>
-                <p className="leading-relaxed whitespace-pre-line">{result.summary}</p>
+                <p className="leading-relaxed whitespace-pre-line">{cleanSummary(result.summary)}</p>
               </CardContent>
             </Card>
 
