@@ -155,7 +155,14 @@ export function YouTubeSummarizer() {
       try { setResult(parseResponse(data)); } catch { setResult(data); }
     } catch (err: any) {
       clearTimeout(timeoutId);
-      setError(err.name === "AbortError" ? "Request timed out. Please try again." : err.message || "Something went wrong");
+      const msg = err.message || "";
+      const isQuota = msg.includes("429") || msg.includes("quota") || msg.includes("Quota");
+      const isTimeout = err.name === "AbortError";
+      setError(
+        isTimeout ? "Request timed out. Please try again." :
+        isQuota ? "Gemini API daily quota reached (20 requests/day on free tier). Please try again after midnight Pacific Time, or use a different API key." :
+        msg || "Something went wrong"
+      );
     } finally {
       setIsLoading(false);
     }
