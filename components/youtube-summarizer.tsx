@@ -92,18 +92,35 @@ export function YouTubeSummarizer() {
 
   const fetchTranscript = async (videoUrl: string): Promise<string> => {
     const encoded = encodeURIComponent(videoUrl);
-    const res = await fetch(
+
+    // Try native captions first (fast, 1 credit)
+    const nativeRes = await fetch(
       `https://api.supadata.ai/v1/transcript?url=${encoded}&text=true&lang=en&mode=native`,
       { headers: { "x-api-key": SUPADATA_API_KEY } }
     );
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || err.detail || `Transcript fetch failed (${res.status})`);
+
+    if (nativeRes.ok) {
+      const data = await nativeRes.json();
+      if (data.jobId) return await pollTranscriptJob(data.jobId);
+      if (data.content) return data.content;
     }
-    const data = await res.json();
-    if (data.jobId) return await pollTranscriptJob(data.jobId);
-    if (!data.content) throw new Error("No transcript available for this video.");
-    return data.content;
+
+    // No native captions — fall back to AI generation (works for any video)
+    const aiRes = await fetch(
+      `https://api.supadata.ai/v1/transcript?url=${encoded}&text=true&mode=generate`,
+      { headers: { "x-api-key": SUPADATA_API_KEY } }
+    );
+
+    if (!aiRes.ok) {
+      const err = await aiRes.json().catch(() => ({}));
+      throw new Error(err.message || err.detail || `Could not fetch transcript (${aiRes.status})`);
+    }
+
+    const aiData = await aiRes.json();
+    if (aiData.jobId) return await pollTranscriptJob(aiData.jobId);
+    if (aiData.content) return aiData.content;
+
+    throw new Error("No transcript could be generated for this video. It may be private or age-restricted.");
   };
 
   const pollTranscriptJob = async (jobId: string): Promise<string> => {
