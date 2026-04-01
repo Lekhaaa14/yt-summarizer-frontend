@@ -13,9 +13,12 @@ interface SummaryResult {
   title: string;
 }
 
+const SUPADATA_API_KEY = process.env.NEXT_PUBLIC_SUPADATA_API_KEY!;
+const BACKEND_URL = "https://yt-summarizer-backend-abjt.onrender.com";
+
 const LOADING_STEPS = [
-  "Fetching video content...",
-  "Analyzing transcript...",
+  "Fetching transcript...",
+  "Analyzing content...",
   "Identifying key points...",
   "Generating summary...",
   "Almost done...",
@@ -28,7 +31,6 @@ export function YouTubeSummarizer() {
   const [result, setResult] = useState<SummaryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Cycle through loading steps every 8 seconds
   useEffect(() => {
     if (!isLoading) return;
     setLoadingStep(0);
@@ -37,6 +39,42 @@ export function YouTubeSummarizer() {
     }, 8000);
     return () => clearInterval(interval);
   }, [isLoading]);
+
+  const fetchTranscript = async (videoUrl: string): Promise<string> => {
+    const encoded = encodeURIComponent(videoUrl);
+    const res = await fetch(
+      `https://api.supadata.ai/v1/transcript?url=${encoded}&text=true&lang=en&mode=native`,
+      { headers: { "x-api-key": SUPADATA_API_KEY } }
+    );
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || err.detail || `Transcript fetch failed (${res.status})`);
+    }
+
+    const data = await res.json();
+
+    // Handle async job (202)
+    if (data.jobId) {
+      return await pollTranscriptJob(data.jobId);
+    }
+
+    if (!data.content) throw new Error("No transcript available for this video.");
+    return data.content;
+  };
+
+  const pollTranscriptJob = async (jobId: string): Promise<string> => {
+    for (let i = 0; i < 90; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const res = await fetch(`https://api.supadata.ai/v1/transcript/${jobId}`, {
+        headers: { "x-api-key": SUPADATA_API_KEY },
+      });
+      const data = await res.json();
+      if (data.status === "completed") return data.content;
+      if (data.status === "failed") throw new Error(`Transcript job failed: ${data.error}`);
+    }
+    throw new Error("Transcript timed out. Please try again.");
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,23 +88,21 @@ export function YouTubeSummarizer() {
     const timeoutId = setTimeout(() => controller.abort(), 120000);
 
     try {
-      const response = await fetch(
-        "https://yt-summarizer-backend-abjt.onrender.com/api/summarize",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url }),
-          signal: controller.signal,
-        }
-      );
+      // Step 1: fetch transcript from Supadata (browser → no IP ban)
+      const transcript = await fetchTranscript(url);
+
+      // Step 2: send transcript to backend for Gemini summarization
+      const response = await fetch(`${BACKEND_URL}/api/summarize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, transcript }),
+        signal: controller.signal,
+      });
 
       clearTimeout(timeoutId);
       const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.detail || "Failed to summarize video");
-      }
-
+      if (!response.ok) throw new Error(data.detail || "Failed to summarize video");
       setResult(data);
     } catch (err: any) {
       clearTimeout(timeoutId);
@@ -111,7 +147,7 @@ export function YouTubeSummarizer() {
                 Summarize any YouTube video instantly
               </h1>
               <p className="text-muted-foreground text-lg max-w-xl mx-auto">
-                Paste a YouTube URL and get a concise summary instantly. Works in any language.
+                Paste a YouTube URL and get a concise summary. Works in any language.
               </p>
             </div>
 
@@ -129,18 +165,10 @@ export function YouTubeSummarizer() {
                   />
                 </div>
                 <Button type="submit" disabled={isLoading || !url.trim()} className="h-12 px-6">
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Summarizing...
-                    </>
-                  ) : (
-                    "Summarize"
-                  )}
+                  {isLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Summarizing...</> : "Summarize"}
                 </Button>
               </div>
 
-              {/* Loading progress */}
               {isLoading && (
                 <div className="bg-muted rounded-lg p-4 space-y-2">
                   {LOADING_STEPS.map((step, i) => (
@@ -160,9 +188,7 @@ export function YouTubeSummarizer() {
                 </div>
               )}
 
-              {error && (
-                <p className="text-red-500 text-sm text-center">{error}</p>
-              )}
+              {error && <p className="text-red-500 text-sm text-center">{error}</p>}
             </form>
           </div>
         ) : (
@@ -170,15 +196,12 @@ export function YouTubeSummarizer() {
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-2xl font-bold">{result.title || "Video Summary"}</h2>
               <Button onClick={handleReset} variant="outline">
-                <RotateCcw className="w-4 h-4 mr-2" />
-                New Video
+                <RotateCcw className="w-4 h-4 mr-2" />New Video
               </Button>
             </div>
 
             <Card className="mb-6">
-              <CardHeader>
-                <CardTitle>Summary</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle>Summary</CardTitle></CardHeader>
               <CardContent>
                 <p className="leading-relaxed whitespace-pre-line">{result.summary}</p>
               </CardContent>
@@ -186,9 +209,7 @@ export function YouTubeSummarizer() {
 
             {result.keyPoints?.length > 0 && (
               <Card className="mb-6">
-                <CardHeader>
-                  <CardTitle>Key Points</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle>Key Points</CardTitle></CardHeader>
                 <CardContent>
                   <ul className="space-y-2">
                     {result.keyPoints.map((point, i) => (
@@ -204,9 +225,7 @@ export function YouTubeSummarizer() {
 
             {result.timestamps?.length > 0 && (
               <Card>
-                <CardHeader>
-                  <CardTitle>Timestamps</CardTitle>
-                </CardHeader>
+                <CardHeader><CardTitle>Timestamps</CardTitle></CardHeader>
                 <CardContent>
                   <ul className="space-y-2">
                     {result.timestamps.map((t, i) => (
