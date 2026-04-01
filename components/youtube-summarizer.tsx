@@ -13,19 +13,6 @@ interface SummaryResult {
   title: string;
 }
 
-// Strip leaked JSON wrapper if backend returns raw JSON string
-const cleanSummary = (text: string): string => {
-  if (!text) return "";
-  // If it looks like a JSON object leaked, try to extract just the summary field
-  if (text.trim().startsWith("{")) {
-    try {
-      const parsed = JSON.parse(text);
-      if (parsed.summary) return parsed.summary;
-    } catch {}
-  }
-  return text;
-};
-
 const SUPADATA_API_KEY = process.env.NEXT_PUBLIC_SUPADATA_API_KEY!;
 const BACKEND_URL = "https://yt-summarizer-backend-abjt.onrender.com";
 
@@ -36,6 +23,42 @@ const LOADING_STEPS = [
   "Generating summary...",
   "Almost done...",
 ];
+
+/** Strip markdown fences and extract clean JSON, then parse fields */
+function parseResponse(raw: any): SummaryResult {
+  // If backend already parsed correctly (no leaking)
+  if (raw.summary && !raw.summary.trim().startsWith("{") && !raw.summary.trim().startsWith("```")) {
+    return raw;
+  }
+
+  // Try to extract JSON from leaked summary field or raw string
+  let jsonStr = typeof raw === "string" ? raw : raw.summary || JSON.stringify(raw);
+
+  // Strip markdown fences
+  jsonStr = jsonStr.replace(/^```(?:json)?\s*/gm, "").replace(/\s*```\s*$/gm, "").trim();
+
+  // Try to find and parse JSON object
+  const match = jsonStr.match(/\{[\s\S]*\}/);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[0]);
+      return {
+        title: parsed.title || raw.title || "Video Summary",
+        summary: parsed.summary || "",
+        keyPoints: parsed.keyPoints || parsed.key_points || [],
+        timestamps: parsed.timestamps || [],
+      };
+    } catch {}
+  }
+
+  // Last resort: return as-is but clean up fences from summary
+  return {
+    title: raw.title || "Video Summary",
+    summary: jsonStr,
+    keyPoints: raw.keyPoints || [],
+    timestamps: raw.timestamps || [],
+  };
+}
 
 export function YouTubeSummarizer() {
   const [url, setUrl] = useState("");
@@ -59,19 +82,12 @@ export function YouTubeSummarizer() {
       `https://api.supadata.ai/v1/transcript?url=${encoded}&text=true&lang=en&mode=native`,
       { headers: { "x-api-key": SUPADATA_API_KEY } }
     );
-
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.message || err.detail || `Transcript fetch failed (${res.status})`);
     }
-
     const data = await res.json();
-
-    // Handle async job (202)
-    if (data.jobId) {
-      return await pollTranscriptJob(data.jobId);
-    }
-
+    if (data.jobId) return await pollTranscriptJob(data.jobId);
     if (!data.content) throw new Error("No transcript available for this video.");
     return data.content;
   };
@@ -101,10 +117,8 @@ export function YouTubeSummarizer() {
     const timeoutId = setTimeout(() => controller.abort(), 120000);
 
     try {
-      // Step 1: fetch transcript from Supadata (browser → no IP ban)
       const transcript = await fetchTranscript(url);
 
-      // Step 2: send transcript to backend for Gemini summarization
       const response = await fetch(`${BACKEND_URL}/api/summarize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -114,26 +128,18 @@ export function YouTubeSummarizer() {
 
       clearTimeout(timeoutId);
       const data = await response.json();
-
       if (!response.ok) throw new Error(data.detail || "Failed to summarize video");
-      setResult(data);
+
+      setResult(parseResponse(data));
     } catch (err: any) {
       clearTimeout(timeoutId);
-      if (err.name === "AbortError") {
-        setError("Request timed out. Please try again.");
-      } else {
-        setError(err.message || "Something went wrong");
-      }
+      setError(err.name === "AbortError" ? "Request timed out. Please try again." : err.message || "Something went wrong");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleReset = () => {
-    setUrl("");
-    setResult(null);
-    setError(null);
-  };
+  const handleReset = () => { setUrl(""); setResult(null); setError(null); };
 
   return (
     <div className="min-h-screen bg-background">
@@ -160,7 +166,7 @@ export function YouTubeSummarizer() {
                 Summarize any YouTube video instantly
               </h1>
               <p className="text-muted-foreground text-lg max-w-xl mx-auto">
-                Paste a YouTube URL and get a concise summary. Works in any language.
+                Paste a YouTube URL and get a detailed summary. Works in any language.
               </p>
             </div>
 
@@ -207,7 +213,7 @@ export function YouTubeSummarizer() {
         ) : (
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center justify-between mb-8">
-              <h2 className="text-2xl font-bold">{result.title || "Video Summary"}</h2>
+              <h2 className="text-2xl font-bold">{result.title}</h2>
               <Button onClick={handleReset} variant="outline">
                 <RotateCcw className="w-4 h-4 mr-2" />New Video
               </Button>
@@ -216,7 +222,9 @@ export function YouTubeSummarizer() {
             <Card className="mb-6">
               <CardHeader><CardTitle>Summary</CardTitle></CardHeader>
               <CardContent>
-                <p className="leading-relaxed whitespace-pre-line">{cleanSummary(result.summary)}</p>
+                {result.summary.split("\n\n").filter(Boolean).map((para, i) => (
+                  <p key={i} className="leading-relaxed mb-3 last:mb-0">{para}</p>
+                ))}
               </CardContent>
             </Card>
 
