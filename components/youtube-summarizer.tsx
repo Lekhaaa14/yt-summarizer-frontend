@@ -25,61 +25,52 @@ const LOADING_STEPS = [
 ];
 
 /** Strip markdown fences and extract clean JSON, then parse fields */
-function parseResponse(raw: any): SummaryResult {
-  // Case 1: backend returned clean parsed fields — use directly
-  if (
-    raw.summary &&
-    !raw.summary.trim().startsWith("{") &&
-    !raw.summary.trim().startsWith("```") &&
-    raw.title &&
-    !raw.title.includes('"title"')
-  ) {
-    return raw;
+function extractJSON(str: string): any | null {
+  // Strip markdown fences
+  str = str.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+  // Try direct parse
+  try { return JSON.parse(str); } catch {}
+  // Try slicing from first { to last }
+  const start = str.indexOf("{");
+  const end = str.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(str.slice(start, end + 1)); } catch {}
   }
+  return null;
+}
 
-  // Case 2: summary field contains raw JSON string (the leak case)
-  let jsonStr = typeof raw === "string" ? raw : raw.summary || "";
-
-  // Strip markdown fences like ```json ... ```
-  jsonStr = jsonStr.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-
-  // Try direct JSON parse first
-  try {
-    const parsed = JSON.parse(jsonStr);
-    if (parsed.summary) {
+function parseResponse(raw: any): SummaryResult {
+  // If summary looks like leaked JSON, extract it
+  const summaryStr = raw.summary || "";
+  if (summaryStr.trim().startsWith("{") || summaryStr.trim().startsWith("```")) {
+    const parsed = extractJSON(summaryStr);
+    if (parsed?.summary) {
       return {
         title: parsed.title || raw.title || "Video Summary",
         summary: parsed.summary,
-        keyPoints: parsed.keyPoints || [],
-        timestamps: parsed.timestamps || [],
+        keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints : [],
+        timestamps: Array.isArray(parsed.timestamps) ? parsed.timestamps : [],
       };
     }
-  } catch {}
-
-  // Try finding JSON object with regex (handles trailing garbage)
-  try {
-    // Find last closing brace to handle truncated JSON
-    const start = jsonStr.indexOf("{");
-    const end = jsonStr.lastIndexOf("}");
-    if (start !== -1 && end !== -1 && end > start) {
-      const parsed = JSON.parse(jsonStr.slice(start, end + 1));
-      if (parsed.summary) {
-        return {
-          title: parsed.title || raw.title || "Video Summary",
-          summary: parsed.summary,
-          keyPoints: parsed.keyPoints || [],
-          timestamps: parsed.timestamps || [],
-        };
-      }
+  }
+  // If title looks like leaked JSON key, extract from summary
+  if (raw.title?.includes('"') || raw.title?.startsWith("{")) {
+    const parsed = extractJSON(raw.title + raw.summary);
+    if (parsed?.summary) {
+      return {
+        title: parsed.title || "Video Summary",
+        summary: parsed.summary,
+        keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints : [],
+        timestamps: Array.isArray(parsed.timestamps) ? parsed.timestamps : [],
+      };
     }
-  } catch {}
-
-  // Fallback: use raw fields as-is
+  }
+  // All good — return as-is
   return {
-    title: raw.title || "Video Summary",
-    summary: raw.summary || jsonStr,
-    keyPoints: raw.keyPoints || [],
-    timestamps: raw.timestamps || [],
+    title: raw.title && !raw.title.startsWith("Video ") ? raw.title : raw.title || "Video Summary",
+    summary: summaryStr,
+    keyPoints: Array.isArray(raw.keyPoints) ? raw.keyPoints : [],
+    timestamps: Array.isArray(raw.timestamps) ? raw.timestamps : [],
   };
 }
 
