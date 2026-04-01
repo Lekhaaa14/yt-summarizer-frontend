@@ -159,7 +159,7 @@ export function YouTubeSummarizer() {
         return;
       }
 
-      const response = await fetch(`${BACKEND_URL}/api/summarize`, {
+      const response = await fetch(`${BACKEND_URL}/summarize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url, transcript }),
