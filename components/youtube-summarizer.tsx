@@ -26,35 +26,58 @@ const LOADING_STEPS = [
 
 /** Strip markdown fences and extract clean JSON, then parse fields */
 function parseResponse(raw: any): SummaryResult {
-  // If backend already parsed correctly (no leaking)
-  if (raw.summary && !raw.summary.trim().startsWith("{") && !raw.summary.trim().startsWith("```")) {
+  // Case 1: backend returned clean parsed fields — use directly
+  if (
+    raw.summary &&
+    !raw.summary.trim().startsWith("{") &&
+    !raw.summary.trim().startsWith("```") &&
+    raw.title &&
+    !raw.title.includes('"title"')
+  ) {
     return raw;
   }
 
-  // Try to extract JSON from leaked summary field or raw string
-  let jsonStr = typeof raw === "string" ? raw : raw.summary || JSON.stringify(raw);
+  // Case 2: summary field contains raw JSON string (the leak case)
+  let jsonStr = typeof raw === "string" ? raw : raw.summary || "";
 
-  // Strip markdown fences
-  jsonStr = jsonStr.replace(/^```(?:json)?\s*/gm, "").replace(/\s*```\s*$/gm, "").trim();
+  // Strip markdown fences like ```json ... ```
+  jsonStr = jsonStr.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
 
-  // Try to find and parse JSON object
-  const match = jsonStr.match(/\{[\s\S]*\}/);
-  if (match) {
-    try {
-      const parsed = JSON.parse(match[0]);
+  // Try direct JSON parse first
+  try {
+    const parsed = JSON.parse(jsonStr);
+    if (parsed.summary) {
       return {
         title: parsed.title || raw.title || "Video Summary",
-        summary: parsed.summary || "",
-        keyPoints: parsed.keyPoints || parsed.key_points || [],
+        summary: parsed.summary,
+        keyPoints: parsed.keyPoints || [],
         timestamps: parsed.timestamps || [],
       };
-    } catch {}
-  }
+    }
+  } catch {}
 
-  // Last resort: return as-is but clean up fences from summary
+  // Try finding JSON object with regex (handles trailing garbage)
+  try {
+    // Find last closing brace to handle truncated JSON
+    const start = jsonStr.indexOf("{");
+    const end = jsonStr.lastIndexOf("}");
+    if (start !== -1 && end !== -1 && end > start) {
+      const parsed = JSON.parse(jsonStr.slice(start, end + 1));
+      if (parsed.summary) {
+        return {
+          title: parsed.title || raw.title || "Video Summary",
+          summary: parsed.summary,
+          keyPoints: parsed.keyPoints || [],
+          timestamps: parsed.timestamps || [],
+        };
+      }
+    }
+  } catch {}
+
+  // Fallback: use raw fields as-is
   return {
     title: raw.title || "Video Summary",
-    summary: jsonStr,
+    summary: raw.summary || jsonStr,
     keyPoints: raw.keyPoints || [],
     timestamps: raw.timestamps || [],
   };
