@@ -105,10 +105,7 @@ export function YouTubeSummarizer() {
       `https://api.supadata.ai/v1/transcript?url=${encoded}&text=true&mode=generate`,
       { headers: { "x-api-key": SUPADATA_API_KEY } }
     );
-    if (!aiRes.ok) {
-      const err = await aiRes.json().catch(() => ({}));
-      throw new Error(err.message || `Transcript fetch failed (${aiRes.status})`);
-    }
+    if (!aiRes.ok) return "";
     const aiData = await aiRes.json();
     if (aiData.jobId) return await pollTranscriptJob(aiData.jobId);
     if (aiData.content) return aiData.content;
@@ -116,16 +113,16 @@ export function YouTubeSummarizer() {
   };
 
   const pollTranscriptJob = async (jobId: string): Promise<string> => {
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 1000));
       const res = await fetch(`https://api.supadata.ai/v1/transcript/${jobId}`, {
         headers: { "x-api-key": SUPADATA_API_KEY },
       });
       const data = await res.json();
       if (data.status === "completed") return data.content;
-      if (data.status === "failed") throw new Error(`Transcript job failed: ${data.error}`);
+      if (data.status === "failed") return "";
     }
-    throw new Error("Transcript timed out. Please try again.");
+    return ""; // timed out — fall back to backend visual mode
   };
 
   const saveSummary = async (videoUrl: string, parsedResult: SummaryResult, videoId: string) => {
@@ -155,14 +152,12 @@ export function YouTubeSummarizer() {
     const timeoutId = setTimeout(() => controller.abort(), 300000);
 
     try {
+      // Try to get transcript but never block on failure
       let transcript = "";
       try {
         transcript = await fetchTranscript(url);
-      } catch (fetchErr: any) {
-        clearTimeout(timeoutId);
-        setError(fetchErr.message || "Failed to fetch transcript.");
-        setIsLoading(false);
-        return;
+      } catch {
+        transcript = ""; // fall back to backend visual mode
       }
 
       const { data: sessionData } = await supabase.auth.getSession();
