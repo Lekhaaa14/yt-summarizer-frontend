@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Youtube, Sparkles, RotateCcw, Play, CheckCircle2, Loader2, Clock, LogOut, LogIn } from "lucide-react";
+import { Youtube, Sparkles, RotateCcw, Play, CheckCircle2, Loader2, Clock, LogOut } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
@@ -70,8 +71,8 @@ export function YouTubeSummarizer() {
   const [savedId, setSavedId] = useState<string | null>(null);
 
   const supabase = createClient();
+  const router = useRouter();
 
-  // Get current user on load
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user));
     const { data: listener } = supabase.auth.onAuthStateChange((_, session) => {
@@ -100,7 +101,6 @@ export function YouTubeSummarizer() {
       if (data.jobId) return await pollTranscriptJob(data.jobId);
       if (data.content) return data.content;
     }
-    // Fallback to AI generation
     const aiRes = await fetch(
       `https://api.supadata.ai/v1/transcript?url=${encoded}&text=true&mode=generate`,
       { headers: { "x-api-key": SUPADATA_API_KEY } }
@@ -112,7 +112,7 @@ export function YouTubeSummarizer() {
     const aiData = await aiRes.json();
     if (aiData.jobId) return await pollTranscriptJob(aiData.jobId);
     if (aiData.content) return aiData.content;
-    return ""; // Let backend handle visually
+    return "";
   };
 
   const pollTranscriptJob = async (jobId: string): Promise<string> => {
@@ -185,7 +185,6 @@ export function YouTubeSummarizer() {
       const parsed = parseResponse(data);
       setResult(parsed);
 
-      // Extract video ID and save to DB if logged in
       const match = url.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([a-zA-Z0-9_-]{11})/);
       const videoId = match ? match[1] : url;
       await saveSummary(url, parsed, videoId);
@@ -205,7 +204,7 @@ export function YouTubeSummarizer() {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    setUser(null);
+    router.push("/");
   };
 
   const handleReset = () => { setUrl(""); setResult(null); setError(null); setSavedId(null); };
@@ -221,25 +220,15 @@ export function YouTubeSummarizer() {
             <span className="font-semibold text-lg text-foreground">YouTube Summarizer</span>
           </div>
           <div className="flex items-center gap-3">
-            {user ? (
-              <>
-                <Link href="/history">
-                  <Button variant="ghost" size="sm">
-                    <Clock className="w-4 h-4 mr-2" />History
-                  </Button>
-                </Link>
-                <span className="text-sm text-muted-foreground hidden sm:block">{user.email}</span>
-                <Button variant="ghost" size="sm" onClick={handleSignOut}>
-                  <LogOut className="w-4 h-4 mr-2" />Sign out
-                </Button>
-              </>
-            ) : (
-              <Link href="/login">
-                <Button variant="outline" size="sm">
-                  <LogIn className="w-4 h-4 mr-2" />Sign in
-                </Button>
-              </Link>
-            )}
+            <Link href="/history">
+              <Button variant="ghost" size="sm">
+                <Clock className="w-4 h-4 mr-2" />History
+              </Button>
+            </Link>
+            <span className="text-sm text-muted-foreground hidden sm:block">{user?.email}</span>
+            <Button variant="ghost" size="sm" onClick={handleSignOut}>
+              <LogOut className="w-4 h-4 mr-2" />Sign out
+            </Button>
           </div>
         </div>
       </header>
@@ -258,11 +247,6 @@ export function YouTubeSummarizer() {
               <p className="text-muted-foreground text-lg max-w-xl mx-auto">
                 Paste a YouTube URL and get a detailed summary. Works in any language.
               </p>
-              {!user && (
-                <p className="text-sm text-muted-foreground mt-3">
-                  <Link href="/login" className="text-primary hover:underline">Sign in</Link> to save your summaries
-                </p>
-              )}
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
