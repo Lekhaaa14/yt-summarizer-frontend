@@ -4,7 +4,10 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Youtube, Sparkles, RotateCcw, Play, CheckCircle2, Loader2 } from "lucide-react";
+import { Youtube, Sparkles, RotateCcw, Play, CheckCircle2, Loader2, Clock, LogOut, LogIn } from "lucide-react";
+import { createClient } from "@/lib/supabase";
+import Link from "next/link";
+import type { User } from "@supabase/supabase-js";
 
 interface SummaryResult {
   summary: string;
@@ -25,13 +28,9 @@ const LOADING_STEPS = [
   "Almost done — this may take up to 2 minutes...",
 ];
 
-/** Strip markdown fences and extract clean JSON, then parse fields */
 function extractJSON(str: string): any | null {
-  // Strip markdown fences
   str = str.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-  // Try direct parse
   try { return JSON.parse(str); } catch {}
-  // Try slicing from first { to last }
   const start = str.indexOf("{");
   const end = str.lastIndexOf("}");
   if (start !== -1 && end > start) {
@@ -41,7 +40,6 @@ function extractJSON(str: string): any | null {
 }
 
 function parseResponse(raw: any): SummaryResult {
-  // If summary looks like leaked JSON, extract it
   const summaryStr = raw.summary || "";
   if (summaryStr.trim().startsWith("{") || summaryStr.trim().startsWith("```")) {
     const parsed = extractJSON(summaryStr);
@@ -54,19 +52,6 @@ function parseResponse(raw: any): SummaryResult {
       };
     }
   }
-  // If title looks like leaked JSON key, extract from summary
-  if (raw.title?.includes('"') || raw.title?.startsWith("{")) {
-    const parsed = extractJSON(raw.title + raw.summary);
-    if (parsed?.summary) {
-      return {
-        title: parsed.title || "Video Summary",
-        summary: parsed.summary,
-        keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints : [],
-        timestamps: Array.isArray(parsed.timestamps) ? parsed.timestamps : [],
-      };
-    }
-  }
-  // All good — return as-is
   return {
     title: raw.title && !raw.title.startsWith("Video ") ? raw.title : raw.title || "Video Summary",
     summary: summaryStr,
@@ -81,6 +66,19 @@ export function YouTubeSummarizer() {
   const [loadingStep, setLoadingStep] = useState(0);
   const [result, setResult] = useState<SummaryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [savedId, setSavedId] = useState<string | null>(null);
+
+  const supabase = createClient();
+
+  // Get current user on load
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+    const { data: listener } = supabase.auth.onAuthStateChange((_, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (!isLoading) return;
@@ -93,35 +91,28 @@ export function YouTubeSummarizer() {
 
   const fetchTranscript = async (videoUrl: string): Promise<string> => {
     const encoded = encodeURIComponent(videoUrl);
-
-    // Try native captions first (fast, 1 credit)
     const nativeRes = await fetch(
       `https://api.supadata.ai/v1/transcript?url=${encoded}&text=true&lang=en&mode=native`,
       { headers: { "x-api-key": SUPADATA_API_KEY } }
     );
-
     if (nativeRes.ok) {
       const data = await nativeRes.json();
       if (data.jobId) return await pollTranscriptJob(data.jobId);
       if (data.content) return data.content;
     }
-
-    // No native captions — fall back to AI generation (works for any video)
+    // Fallback to AI generation
     const aiRes = await fetch(
       `https://api.supadata.ai/v1/transcript?url=${encoded}&text=true&mode=generate`,
       { headers: { "x-api-key": SUPADATA_API_KEY } }
     );
-
     if (!aiRes.ok) {
       const err = await aiRes.json().catch(() => ({}));
-      throw new Error(err.message || err.detail || `Could not fetch transcript (${aiRes.status})`);
+      throw new Error(err.message || `Transcript fetch failed (${aiRes.status})`);
     }
-
     const aiData = await aiRes.json();
     if (aiData.jobId) return await pollTranscriptJob(aiData.jobId);
     if (aiData.content) return aiData.content;
-
-    throw new Error("No transcript could be generated for this video. It may be private or age-restricted.");
+    return ""; // Let backend handle visually
   };
 
   const pollTranscriptJob = async (jobId: string): Promise<string> => {
@@ -137,6 +128,20 @@ export function YouTubeSummarizer() {
     throw new Error("Transcript timed out. Please try again.");
   };
 
+  const saveSummary = async (videoUrl: string, parsedResult: SummaryResult, videoId: string) => {
+    if (!user) return;
+    const { data, error } = await supabase.from("summaries").insert({
+      user_id: user.id,
+      video_id: videoId,
+      video_url: videoUrl,
+      title: parsedResult.title,
+      summary: parsedResult.summary,
+      key_points: parsedResult.keyPoints,
+      timestamps: parsedResult.timestamps,
+    }).select("id").single();
+    if (!error && data) setSavedId(data.id);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url.trim()) return;
@@ -144,9 +149,10 @@ export function YouTubeSummarizer() {
     setIsLoading(true);
     setError(null);
     setResult(null);
+    setSavedId(null);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 min timeout for visual processing
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
 
     try {
       let transcript = "";
@@ -154,12 +160,12 @@ export function YouTubeSummarizer() {
         transcript = await fetchTranscript(url);
       } catch (fetchErr: any) {
         clearTimeout(timeoutId);
-        setError(fetchErr.message || "Failed to fetch transcript. Check your video URL.");
+        setError(fetchErr.message || "Failed to fetch transcript.");
         setIsLoading(false);
         return;
       }
 
-      const response = await fetch(`${BACKEND_URL}/summarize`, {
+      const response = await fetch(`${BACKEND_URL}/api/summarize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url, transcript }),
@@ -170,15 +176,20 @@ export function YouTubeSummarizer() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Failed to summarize video");
 
-      try { setResult(parseResponse(data)); } catch { setResult(data); }
+      const parsed = parseResponse(data);
+      setResult(parsed);
+
+      // Extract video ID and save to DB if logged in
+      const match = url.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([a-zA-Z0-9_-]{11})/);
+      const videoId = match ? match[1] : url;
+      await saveSummary(url, parsed, videoId);
+
     } catch (err: any) {
       clearTimeout(timeoutId);
       const msg = err.message || "";
-      const isQuota = msg.includes("429") || msg.includes("quota") || msg.includes("Quota");
-      const isTimeout = err.name === "AbortError";
       setError(
-        isTimeout ? "Processing timed out after 5 minutes. The video may be too long. Please try a shorter video or one with captions." :
-        isQuota ? "Gemini API daily quota reached (20 requests/day on free tier). Please try again after midnight Pacific Time, or use a different API key." :
+        err.name === "AbortError" ? "Processing timed out. Please try a shorter video." :
+        msg.includes("429") || msg.includes("quota") ? "Gemini API quota reached. Please try again tomorrow." :
         msg || "Something went wrong"
       );
     } finally {
@@ -186,17 +197,43 @@ export function YouTubeSummarizer() {
     }
   };
 
-  const handleReset = () => { setUrl(""); setResult(null); setError(null); };
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+  };
+
+  const handleReset = () => { setUrl(""); setResult(null); setError(null); setSavedId(null); };
 
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border">
-        <div className="container mx-auto px-4 py-4">
+        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/10">
               <Youtube className="w-5 h-5 text-primary" />
             </div>
             <span className="font-semibold text-lg text-foreground">YouTube Summarizer</span>
+          </div>
+          <div className="flex items-center gap-3">
+            {user ? (
+              <>
+                <Link href="/history">
+                  <Button variant="ghost" size="sm">
+                    <Clock className="w-4 h-4 mr-2" />History
+                  </Button>
+                </Link>
+                <span className="text-sm text-muted-foreground hidden sm:block">{user.email}</span>
+                <Button variant="ghost" size="sm" onClick={handleSignOut}>
+                  <LogOut className="w-4 h-4 mr-2" />Sign out
+                </Button>
+              </>
+            ) : (
+              <Link href="/login">
+                <Button variant="outline" size="sm">
+                  <LogIn className="w-4 h-4 mr-2" />Sign in
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
       </header>
@@ -215,6 +252,11 @@ export function YouTubeSummarizer() {
               <p className="text-muted-foreground text-lg max-w-xl mx-auto">
                 Paste a YouTube URL and get a detailed summary. Works in any language.
               </p>
+              {!user && (
+                <p className="text-sm text-muted-foreground mt-3">
+                  <Link href="/login" className="text-primary hover:underline">Sign in</Link> to save your summaries
+                </p>
+              )}
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -253,14 +295,20 @@ export function YouTubeSummarizer() {
                   ))}
                 </div>
               )}
-
               {error && <p className="text-red-500 text-sm text-center">{error}</p>}
             </form>
           </div>
         ) : (
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center justify-between mb-8">
-              <h2 className="text-2xl font-bold">{result.title}</h2>
+              <div>
+                <h2 className="text-2xl font-bold">{result.title}</h2>
+                {savedId && user && (
+                  <p className="text-sm text-green-500 mt-1 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> Saved to your history
+                  </p>
+                )}
+              </div>
               <Button onClick={handleReset} variant="outline">
                 <RotateCcw className="w-4 h-4 mr-2" />New Video
               </Button>
