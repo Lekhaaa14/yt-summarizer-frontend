@@ -20,7 +20,7 @@ export default function LoginPage() {
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: "https://yt-summarizer-frontend-git-main-lekhaaa14s-projects.vercel.app/auth/callback",
       },
     });
   };
@@ -45,7 +45,6 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] flex flex-col">
-      {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 border-b border-[#1a1a1a]">
         <Link href="/" className="flex items-center gap-2">
           <div className="w-8 h-8 bg-[#111] border border-[#2a2a2a] rounded-lg flex items-center justify-center">
@@ -55,7 +54,6 @@ export default function LoginPage() {
         </Link>
       </nav>
 
-      {/* Modal */}
       <div className="flex-1 flex items-center justify-center px-4">
         <div className="bg-[#111] border border-[#2a2a2a] rounded-2xl p-8 w-full max-w-sm">
           <h2 className="text-white text-xl font-medium mb-2 text-center">
@@ -67,7 +65,6 @@ export default function LoginPage() {
               : "Sign in to start summarizing and saving videos"}
           </p>
 
-          {/* Google */}
           <button
             onClick={handleGoogle}
             className="w-full bg-white text-black font-medium text-[14px] py-3 rounded-xl flex items-center justify-center gap-2.5 hover:bg-gray-100 transition-colors mb-4"
@@ -81,14 +78,12 @@ export default function LoginPage() {
             Continue with Google
           </button>
 
-          {/* Divider */}
           <div className="flex items-center gap-3 mb-4">
             <div className="flex-1 h-px bg-[#2a2a2a]" />
             <span className="text-[12px] text-[#444]">or</span>
             <div className="flex-1 h-px bg-[#2a2a2a]" />
           </div>
 
-          {/* Email form */}
           <form onSubmit={handleEmailAuth} className="space-y-3">
             <input
               type="email"
@@ -117,7 +112,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Toggle */}
           <p className="text-center text-[12px] text-[#555] mt-5">
             {isSignUp ? "Already have an account?" : "Don't have an account?"}{" "}
             <button
