@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { YouTubeSummarizer } from "@/components/youtube-summarizer";
 
 export default async function SummarizePage() {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
