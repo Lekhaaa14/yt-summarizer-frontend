@@ -30,11 +30,11 @@ const LOADING_STEPS = [
 
 function extractJSON(str: string): any | null {
   str = str.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-  try { return JSON.parse(str); } catch {}
+  try { return JSON.parse(str); } catch { }
   const start = str.indexOf("{");
   const end = str.lastIndexOf("}");
   if (start !== -1 && end > start) {
-    try { return JSON.parse(str.slice(start, end + 1)); } catch {}
+    try { return JSON.parse(str.slice(start, end + 1)); } catch { }
   }
   return null;
 }
@@ -165,9 +165,15 @@ export function YouTubeSummarizer() {
         return;
       }
 
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
       const response = await fetch(`${BACKEND_URL}/api/summarize`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ url, transcript }),
         signal: controller.signal,
       });
@@ -189,8 +195,8 @@ export function YouTubeSummarizer() {
       const msg = err.message || "";
       setError(
         err.name === "AbortError" ? "Processing timed out. Please try a shorter video." :
-        msg.includes("429") || msg.includes("quota") ? "Gemini API quota reached. Please try again tomorrow." :
-        msg || "Something went wrong"
+          msg.includes("429") || msg.includes("quota") ? "Gemini API quota reached. Please try again tomorrow." :
+            msg || "Something went wrong"
       );
     } finally {
       setIsLoading(false);
