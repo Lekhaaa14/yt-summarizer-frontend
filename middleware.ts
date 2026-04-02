@@ -14,28 +14,31 @@ export async function middleware(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
+            supabaseResponse.cookies.set(name, value, options))
         },
       },
     }
   )
 
+  // Refresh session
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Protect /history route
-  if (!user && request.nextUrl.pathname.startsWith('/history')) {
+  // If not logged in and trying to access /summarize or /history → redirect to login
+  if (!user && (
+    request.nextUrl.pathname.startsWith('/summarize') ||
+    request.nextUrl.pathname.startsWith('/history')
+  )) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // Redirect logged-in users away from /login
-  if (user && request.nextUrl.pathname === '/login') {
-    return NextResponse.redirect(new URL('/', request.url))
+  // If logged in and trying to access /login → redirect to summarize
+  if (user && request.nextUrl.pathname.startsWith('/login')) {
+    return NextResponse.redirect(new URL('/summarize', request.url))
   }
 
   return supabaseResponse
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  matcher: ['/summarize', '/history', '/login'],
 }
