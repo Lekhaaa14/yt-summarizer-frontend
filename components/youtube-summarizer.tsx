@@ -21,12 +21,10 @@ const SUPADATA_API_KEY = process.env.NEXT_PUBLIC_SUPADATA_API_KEY!;
 const BACKEND_URL = "https://yt-summarizer-backend-abjt.onrender.com";
 
 const LOADING_STEPS = [
-  "Fetching transcript...",
-  "Analyzing video content...",
-  "Processing visual frames...",
-  "Identifying key points...",
+  "Analyzing video...",
+  "Extracting key information...",
   "Generating summary...",
-  "Almost done — this may take up to 2 minutes...",
+  "Almost done...",
 ];
 
 function extractJSON(str: string): any | null {
@@ -74,11 +72,8 @@ export function YouTubeSummarizer() {
   const router = useRouter();
 
   useEffect(() => {
-    // Force refresh session to get current logged in user
-    supabase.auth.getSession().then(({ data }) => {
-      setUser(data.session?.user ?? null);
-    });
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+    supabase.auth.getSession().then(({ data }) => setUser(data.session?.user ?? null));
+    const { data: listener } = supabase.auth.onAuthStateChange((_, session) => {
       setUser(session?.user ?? null);
     });
     return () => listener.subscription.unsubscribe();
@@ -89,43 +84,25 @@ export function YouTubeSummarizer() {
     setLoadingStep(0);
     const interval = setInterval(() => {
       setLoadingStep((s) => Math.min(s + 1, LOADING_STEPS.length - 1));
-    }, 15000);
+    }, 8000);
     return () => clearInterval(interval);
   }, [isLoading]);
 
-  const fetchTranscript = async (videoUrl: string): Promise<string> => {
-    const encoded = encodeURIComponent(videoUrl);
-    const nativeRes = await fetch(
-      `https://api.supadata.ai/v1/transcript?url=${encoded}&text=true&lang=en&mode=native`,
-      { headers: { "x-api-key": SUPADATA_API_KEY } }
-    );
-    if (nativeRes.ok) {
-      const data = await nativeRes.json();
-      if (data.jobId) return await pollTranscriptJob(data.jobId);
-      if (data.content) return data.content;
-    }
-    const aiRes = await fetch(
-      `https://api.supadata.ai/v1/transcript?url=${encoded}&text=true&mode=generate`,
-      { headers: { "x-api-key": SUPADATA_API_KEY } }
-    );
-    if (!aiRes.ok) return "";
-    const aiData = await aiRes.json();
-    if (aiData.jobId) return await pollTranscriptJob(aiData.jobId);
-    if (aiData.content) return aiData.content;
-    return "";
-  };
-
-  const pollTranscriptJob = async (jobId: string): Promise<string> => {
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 1000));
-      const res = await fetch(`https://api.supadata.ai/v1/transcript/${jobId}`, {
-        headers: { "x-api-key": SUPADATA_API_KEY },
-      });
+  // Run transcript fetch in background — doesn't block summarization
+  const fetchTranscriptInBackground = async (videoUrl: string): Promise<string> => {
+    try {
+      const encoded = encodeURIComponent(videoUrl);
+      const res = await fetch(
+        `https://api.supadata.ai/v1/transcript?url=${encoded}&text=true&lang=en&mode=native`,
+        { headers: { "x-api-key": SUPADATA_API_KEY }, signal: AbortSignal.timeout(8000) }
+      );
+      if (!res.ok) return "";
       const data = await res.json();
-      if (data.status === "completed") return data.content;
-      if (data.status === "failed") return "";
+      if (data.content) return data.content;
+      return "";
+    } catch {
+      return "";
     }
-    return ""; // timed out — fall back to backend visual mode
   };
 
   const saveSummary = async (videoUrl: string, parsedResult: SummaryResult, videoId: string) => {
@@ -152,19 +129,15 @@ export function YouTubeSummarizer() {
     setSavedId(null);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300000);
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
 
     try {
-      // Try to get transcript but never block on failure
-      let transcript = "";
-      try {
-        transcript = await fetchTranscript(url);
-      } catch {
-        transcript = ""; // fall back to backend visual mode
-      }
-
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
+
+      // Fetch transcript with 8 second limit — if it arrives in time, great
+      // Otherwise backend handles it visually with Gemini
+      const transcript = await fetchTranscriptInBackground(url);
 
       const response = await fetch(`${BACKEND_URL}/api/summarize`, {
         method: "POST",
@@ -191,7 +164,7 @@ export function YouTubeSummarizer() {
       clearTimeout(timeoutId);
       const msg = err.message || "";
       setError(
-        err.name === "AbortError" ? "Processing timed out. Please try a shorter video." :
+        err.name === "AbortError" ? "Processing timed out. Please try again." :
           msg.includes("429") || msg.includes("quota") ? "Gemini API quota reached. Please try again tomorrow." :
             msg || "Something went wrong"
       );
